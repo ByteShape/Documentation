@@ -116,6 +116,9 @@ jobs:
   deploy:
     needs: build                        # <-- MUST depend on build
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url:  ${{ steps.deployment.outputs.page_url }}   # nice-to-have
     permissions:
       pages: write
       id-token: write
