@@ -1,60 +1,131 @@
 # .github/workflows/build-pages.yml
-name: Docs Hub → GitHub Pages
+name: Docs Hub – GitHub Pages
 
+################################################################################
+# 1. Triggers
+################################################################################
 on:
-  # trigger manually or on any push you want
   workflow_dispatch:
+  schedule:                  # nightly build
+    - cron: '17 3 * * *'
+  repository_dispatch:       # called from library repos
+    types: [update_docs]
 
+################################################################################
+# 2. Required permissions for the deploy-pages action
+################################################################################
 permissions:
   contents: read
-  pages: write          # needed by deploy-pages
-  id-token: write       # needed by deploy-pages
-  actions: read         # lets deploy-pages read the build’s artifacts
+  pages: write
+  id-token: write
+  actions: read
 
-###############################################################################
+################################################################################
+# 3. Global variables
+################################################################################
+env:
+  PY_VER: "3.11"
+  PAT: ${{ secrets.LIBS_CLONE_PAT }}
+  # one line  =  <name>  <git-ref>  <clone-URL>
+  LIBRARIES: |
+    shapelearn dev https://github.com/ByteShape/ShapeLearn.git
+
 jobs:
-  # ─────────────────────────────────────────────────────────────────── BUILD ──
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+    # --- checkout *this* repo so we can write into site/ -------------
+    - uses: actions/checkout@v4
 
-      # 0️⃣  Tell GitHub “this run will publish a Pages artifact”
-      - name: Setup Pages
-        id: pages
-        uses: actions/configure-pages@v3     # <- v3 is current
+    # --- Python toolchain -------------------------------------------
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PY_VER }}
 
-      #########################################################################
-      # 👉 PUT *YOUR* BUILD LOGIC HERE
-      #    For the smoke-test we just echo a file; replace these 3 lines
-      #########################################################################
-      - name: Build site
-        run: |
-          rm -rf site && mkdir -p site
-          echo '<h1>Hello Pages</h1>' > site/index.html
-      #########################################################################
+    # --- clean /site ------------------------------------------------
+    - name: Prepare site folder
+      run: |
+        rm -rf site
+        mkdir -p site
 
-      # 1️⃣  Upload the folder; must keep default artifact name **github-pages**
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v1  # <-- v1 (not v2) is the combo
-        with:
-          path: site                            # folder to publish
+    # --- Sphinx + helpers -------------------------------------------
+    - name: Install documentation dependencies
+      run: |
+        pip install sphinx sphinx-autodoc-typehints myst-parser \
+                    sphinxcontrib-napoleon
 
-  # ───────────────────────────────────────────────────────────────── DEPLOY ──
+    # --- loop through every LIBRARIES entry -------------------------
+    - name: Build docs for each library / branch
+      shell: bash
+      run: |
+        while read -r NAME REF URL; do
+          [ -z "$NAME" ] && continue
+
+          echo "===> $NAME @ $REF"
+          # ─── authenticated clone ─────────────────────────────────────────
+          AUTH_URL=${URL/https:\/\/github.com/https:\/\/x-access-token:${PAT}@github.com}
+          WORK="$NAME-$REF"
+          rm -rf "$WORK"
+          git clone --depth 1 --branch "$REF" "$AUTH_URL" "$WORK"
+          pip install -e "$WORK"
+
+          # does the repo ship its own docs?
+          if [ -f "$WORK/docs/conf.py" ]; then
+            DOCSRC="$WORK/docs"
+          else
+            # create ad-hoc Sphinx project
+            DOCSRC="$WORK/_docs"
+            sphinx-quickstart -q -p "$NAME $REF" -a ByteShape \
+                              --sep --quiet "$DOCSRC"
+            echo "html_copy_source = False"  >> "$DOCSRC/source/conf.py"
+            echo "html_show_sourcelink = False" >> "$DOCSRC/source/conf.py"
+            sphinx-apidoc -fME -o "$DOCSRC/source/api" "$WORK/$NAME"
+            printf ".. toctree::\n   :maxdepth: 2\n\n   api/%s\n" "$NAME" \
+              > "$DOCSRC/source/index.rst"
+          fi
+
+          OUT="site/${WORK//\//_}"   # replace any slashes in ref
+          sphinx-build -b html "$DOCSRC/source" "$OUT"
+        done <<< "${LIBRARIES}"
+
+    # --- simple landing page ----------------------------------------
+    - name: Generate landing page
+      shell: python
+      run: |
+        import pathlib, html, textwrap
+        root = pathlib.Path("site")
+        links = "\n".join(
+            f'<li><a href="{d.name}/index.html">{html.escape(d.name)}</a></li>'
+            for d in sorted(root.iterdir()) if d.is_dir()
+        )
+        (root / "index.html").write_text(textwrap.dedent(f"""
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>ByteShape – Documentation Hub</title>
+          <h1>ByteShape Documentation</h1>
+          <p>Select a library build:</p>
+          <ul>{links}</ul>
+        """), encoding="utf-8")
+    
+    - uses: actions/configure-pages@v3
+    # --- upload as Pages artifact -----------------------------------
+    - uses: actions/upload-pages-artifact@v3
+      with:
+        name: github-pages
+        path: site
+
   deploy:
-    needs: build
+    needs: build                        # <-- MUST depend on build
     runs-on: ubuntu-latest
-
-    environment:            # GitHub creates ‘github-pages’ on first success
+    environment:
       name: github-pages
-      url:  ${{ steps.deployment.outputs.page_url }}
-
+      url:  ${{ steps.deployment.outputs.page_url }}   # nice-to-have
     permissions:
       pages: write
       id-token: write
-      actions: read          # keep
-
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v2         # <- v2 is current
+      - id: deployment
+        uses: actions/deploy-pages@v2
+        with:
+          artifact_name: github-pages   # <-- same explicit name
