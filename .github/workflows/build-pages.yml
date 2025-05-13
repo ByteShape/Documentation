@@ -24,6 +24,7 @@ permissions:
 ################################################################################
 env:
   PY_VER: "3.11"
+  PAT: ${{ secrets.LIBS_CLONE_PAT }}
   # one line  =  <name>  <git-ref>  <clone-URL>
   LIBRARIES: |
     shapelearn main https://github.com/ByteShape/ShapeLearn.git
@@ -62,6 +63,9 @@ jobs:
           [ -z "$NAME" ] && continue
 
           echo "===> $NAME @ $REF"
+          # ─── authenticated clone ─────────────────────────────────────────
+          AUTH_URL=${URL/https:\/\/github.com/https:\/\/x-access-token:${PAT}@github.com}
+          git clone --depth 1 --branch "$REF" "$AUTH_URL" "$NAME-$REF"
           WORK="$NAME-$REF"
           git clone --depth 1 --branch "$REF" "$URL" "$WORK"
           pip install -e "$WORK"
