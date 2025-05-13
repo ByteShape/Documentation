@@ -27,7 +27,6 @@ env:
   PAT: ${{ secrets.LIBS_CLONE_PAT }}
   # one line  =  <name>  <git-ref>  <clone-URL>
   LIBRARIES: |
-    shapelearn main https://github.com/ByteShape/ShapeLearn.git
     shapelearn dev https://github.com/ByteShape/ShapeLearn.git
 
 jobs:
@@ -65,7 +64,6 @@ jobs:
           echo "===> $NAME @ $REF"
           # ─── authenticated clone ─────────────────────────────────────────
           AUTH_URL=${URL/https:\/\/github.com/https:\/\/x-access-token:${PAT}@github.com}
-          git clone --depth 1 --branch "$REF" "$AUTH_URL" "$NAME-$REF"
           WORK="$NAME-$REF"
           rm -rf "$WORK"
           git clone --depth 1 --branch "$REF" "$URL" "$WORK"
