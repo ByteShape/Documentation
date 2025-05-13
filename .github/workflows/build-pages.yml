@@ -106,7 +106,8 @@ jobs:
           <p>Select a library build:</p>
           <ul>{links}</ul>
         """), encoding="utf-8")
-
+    
+    - uses: actions/configure-pages@v3
     # --- upload as Pages artifact -----------------------------------
     - uses: actions/upload-pages-artifact@v3
       with:
