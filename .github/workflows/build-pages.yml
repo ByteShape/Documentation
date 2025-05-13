@@ -1,105 +1,95 @@
 # .github/workflows/build-pages.yml
 name: Docs Hub – GitHub Pages
 
-#############################################################################
-# 1. When should the workflow run?
-#    - Manually (workflow_dispatch)
-#    - Nightly at 03:17 UTC (cron)
-#    - Or whenever another repo triggers repository_dispatch:update_docs
-#############################################################################
+################################################################################
+# 1. Triggers
+################################################################################
 on:
   workflow_dispatch:
-  schedule:
+  schedule:                  # nightly build
     - cron: '17 3 * * *'
-  repository_dispatch:
+  repository_dispatch:       # called from library repos
     types: [update_docs]
 
-#############################################################################
-# 2. Permissions:  pages:write + id-token:write are required by deploy-pages
-#############################################################################
+################################################################################
+# 2. Required permissions for the deploy-pages action
+################################################################################
 permissions:
   contents: read
   pages: write
   id-token: write
 
-#############################################################################
+################################################################################
 # 3. Global variables
-#    LIBRARIES = whitespace-separated pairs: <name> <git clone URL>
-#############################################################################
+################################################################################
 env:
   PY_VER: "3.11"
+  # one line  =  <name>  <git-ref>  <clone-URL>
   LIBRARIES: |
-    shapelearn main https://github.com/ByteShape/ShapeLearn.git
-    shapelearn dev https://github.com/ByteShape/ShapeLearn.git
+    shapelearn main https://github.com/ByteShape-AI/shapelearn.git
+    shapelearn dev https://github.com/ByteShape-AI/shapelearn.git
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    # 3.1 Check out *this* docs-hub repo (needed so we can write into site/)
+    # --- checkout *this* repo so we can write into site/ -------------
     - uses: actions/checkout@v4
 
-    # 3.2 Python toolchain
+    # --- Python toolchain -------------------------------------------
     - uses: actions/setup-python@v5
-      with: { python-version: ${{ env.PY_VER }} }
+      with:
+        python-version: ${{ env.PY_VER }}
 
-    # 3.3 Prepare empty site/ folder
-    - name: Remove previous site folder
+    # --- clean /site ------------------------------------------------
+    - name: Prepare site folder
       run: |
         rm -rf site
         mkdir -p site
 
-    # 3.4 Install Sphinx toolchain once
-    - name: Install doc build deps
+    # --- Sphinx + helpers -------------------------------------------
+    - name: Install documentation dependencies
       run: |
-        pip install \
-          sphinx sphinx-autodoc-typehints myst-parser \
-          sphinxcontrib-napoleon
+        pip install sphinx sphinx-autodoc-typehints myst-parser \
+                    sphinxcontrib-napoleon
 
-    # 3.5 Loop over each library → clone, install, build HTML
-    - name: Build docs for each library
+    # --- loop through every LIBRARIES entry -------------------------
+    - name: Build docs for each library / branch
       shell: bash
       run: |
-        while read -r NAME URL; do
-          [ -z "$NAME" ] && continue        # skip blank lines
-          echo "===== Building $NAME ====="
+        while read -r NAME REF URL; do
+          [ -z "$NAME" ] && continue
 
-          # clone shallow
-          git clone --depth 1 "$URL" "$NAME"
+          echo "===> $NAME @ $REF"
+          WORK="$NAME-$REF"
+          git clone --depth 1 --branch "$REF" "$URL" "$WORK"
+          pip install -e "$WORK"
 
-          # editable install
-          pip install -e "$NAME"
-
-          # detect docs folder
-          if [ -f "$NAME/docs/conf.py" ]; then
-            DOCSRC="$NAME/docs"
+          # does the repo ship its own docs?
+          if [ -f "$WORK/docs/conf.py" ]; then
+            DOCSRC="$WORK/docs"
           else
-            # generate minimal Sphinx project on the fly
-            DOCSRC="$NAME/_docs"
-            sphinx-quickstart -q -p "$NAME" -a "ByteShape" -v "0.0" \
-              --sep --dot _ --quiet "$DOCSRC"
-
-            # simple conf tweaks (disable source copy)
-            echo "html_copy_source = False" >> "$DOCSRC/source/conf.py"
+            # create ad-hoc Sphinx project
+            DOCSRC="$WORK/_docs"
+            sphinx-quickstart -q -p "$NAME $REF" -a ByteShape \
+                              --sep --quiet "$DOCSRC"
+            echo "html_copy_source = False"  >> "$DOCSRC/source/conf.py"
             echo "html_show_sourcelink = False" >> "$DOCSRC/source/conf.py"
-
-            # auto stub files
-            sphinx-apidoc -fME -o "$DOCSRC/source/api" "$NAME/$NAME"
-            # minimal toctree
+            sphinx-apidoc -fME -o "$DOCSRC/source/api" "$WORK/$NAME"
             printf ".. toctree::\n   :maxdepth: 2\n\n   api/%s\n" "$NAME" \
-                > "$DOCSRC/source/index.rst"
+              > "$DOCSRC/source/index.rst"
           fi
 
-          # build html into site/<name>
-          sphinx-build -b html "$DOCSRC/source" "site/$NAME"
+          OUT="site/${WORK//\//_}"   # replace any slashes in ref
+          sphinx-build -b html "$DOCSRC/source" "$OUT"
         done <<< "${LIBRARIES}"
 
-    # 3.6 Generate /site/index.html landing page
+    # --- simple landing page ----------------------------------------
     - name: Generate landing page
       shell: python
       run: |
-        import pathlib, textwrap, html
+        import pathlib, html, textwrap
         root = pathlib.Path("site")
         links = "\n".join(
             f'<li><a href="{d.name}/index.html">{html.escape(d.name)}</a></li>'
@@ -110,23 +100,21 @@ jobs:
           <meta charset="utf-8">
           <title>ByteShape – Documentation Hub</title>
           <h1>ByteShape Documentation</h1>
-          <p>Select a library:</p>
+          <p>Select a library build:</p>
           <ul>{links}</ul>
         """), encoding="utf-8")
 
-    # 3.7 Upload site/ as the artifact to be deployed
+    # --- upload as Pages artifact -----------------------------------
     - uses: actions/upload-pages-artifact@v3
-      with: { path: site }
+      with:
+        path: site
 
-  ###########################################################################
-  # 4. Deploy job – uses the official deploy-pages action
-  ###########################################################################
   deploy:
     needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url:  ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url }}
     permissions:
       pages: write
       id-token: write
