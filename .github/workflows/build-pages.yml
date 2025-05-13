@@ -61,33 +61,39 @@ jobs:
       run: |
         while read -r NAME REF URL; do
           [ -z "$NAME" ] && continue
+          DEST="${NAME}-${REF//\//_}"
+          rm -rf "$DEST"
 
-          echo "===> $NAME @ $REF"
-          # ─── authenticated clone ─────────────────────────────────────────
-          AUTH_URL=${URL/https:\/\/github.com/https:\/\/x-access-token:${PAT}@github.com}
-          WORK="$NAME-$REF"
-          rm -rf "$WORK"
-          git clone --depth 1 --branch "$REF" "$AUTH_URL" "$WORK"
-          pip install -e "$WORK"
+          AUTH=${URL/https:\/\/github.com/https:\/\/x-access-token:${PAT}@github.com}
+          git clone --depth 1 --branch "$REF" "$AUTH" "$DEST"
+          pip install -e "$DEST"
 
-          # does the repo ship its own docs?
-          if [ -f "$WORK/docs/conf.py" ]; then
-            DOCSRC="$WORK/docs"
+          if [ -f "$DEST/docs/conf.py" ]; then
+              DOCSRC="$DEST/docs"
           else
-            # create ad-hoc Sphinx project
-            DOCSRC="$WORK/_docs"
-            sphinx-quickstart -q -p "$NAME $REF" -a ByteShape \
-                              --sep --quiet "$DOCSRC"
-            echo "html_copy_source = False"  >> "$DOCSRC/source/conf.py"
-            echo "html_show_sourcelink = False" >> "$DOCSRC/source/conf.py"
-            sphinx-apidoc -fME -o "$DOCSRC/source/api" "$WORK/$NAME"
-            printf ".. toctree::\n   :maxdepth: 2\n\n   api/%s\n" "$NAME" \
-              > "$DOCSRC/source/index.rst"
+              DOCSRC="$DEST/_docs"
+              sphinx-quickstart -q -p "$NAME $REF" -a ByteShape --sep --quiet "$DOCSRC"
+
+              cat >>"$DOCSRC/source/conf.py" <<'PY'
+        extensions = [
+            'sphinx.ext.autodoc',
+            'sphinx.ext.autosummary',
+            'sphinxcontrib.napoleon',
+            'sphinx_autodoc_typehints',
+        ]
+        autosummary_generate = True
+        html_copy_source = False
+        html_show_sourcelink = False
+        PY
+
+              sphinx-apidoc -fME --module-first -o "$DOCSRC/source/api" "$DEST/$NAME"
+              printf ".. toctree::\n   :maxdepth: 2\n\n   api/%s\n" "$NAME" \
+                > "$DOCSRC/source/index.rst"
           fi
 
-          OUT="site/${WORK//\//_}"   # replace any slashes in ref
-          sphinx-build -b html "$DOCSRC/source" "$OUT"
+          sphinx-build -b html "$DOCSRC/source" "site/$DEST"
         done <<< "${LIBRARIES}"
+
 
     # --- simple landing page ----------------------------------------
     - name: Generate landing page
