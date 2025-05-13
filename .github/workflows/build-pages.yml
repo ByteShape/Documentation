@@ -1,62 +1,60 @@
 # .github/workflows/build-pages.yml
 name: Docs Hub → GitHub Pages
+
 on:
-  workflow_dispatch:      # run manually
-  schedule:
-    - cron: '17 3 * * *'  # nightly
+  # trigger manually or on any push you want
+  workflow_dispatch:
 
 permissions:
   contents: read
-  pages:    write          # required by deploy-pages
-  id-token: write          # required by deploy-pages
-  actions:  read           # lets deploy-pages read the build’s artifacts
-
-env:
-  PY_VER: "3.11"
-  # <name> <ref> <url>  — add as many as you like
-  LIBRARIES: |
-    shapelearn dev https://github.com/ByteShape/ShapeLearn.git
+  pages: write          # needed by deploy-pages
+  id-token: write       # needed by deploy-pages
+  actions: read         # lets deploy-pages read the build’s artifacts
 
 ###############################################################################
 jobs:
+  # ─────────────────────────────────────────────────────────────────── BUILD ──
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PY_VER }}
+      # 0️⃣  Tell GitHub “this run will publish a Pages artifact”
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v3     # <- v3 is current
 
-    # ---------------------------------------------
-    # (your loop that clones → builds HTML into site/)
-    # ---------------------------------------------
-    - name: Example static page
-      run: |
-        rm -rf site && mkdir site
-        echo '<h1>Hello Pages</h1>' > site/index.html
+      #########################################################################
+      # 👉 PUT *YOUR* BUILD LOGIC HERE
+      #    For the smoke-test we just echo a file; replace these 3 lines
+      #########################################################################
+      - name: Build site
+        run: |
+          rm -rf site && mkdir -p site
+          echo '<h1>Hello Pages</h1>' > site/index.html
+      #########################################################################
 
-    # 1️⃣ MUST run before uploading
-    - uses: actions/configure-pages@v3
+      # 1️⃣  Upload the folder; must keep default artifact name **github-pages**
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v1  # <-- v1 (not v2) is the combo
+        with:
+          path: site                            # folder to publish
 
-    # 2️⃣ MUST upload an artifact **named "github-pages"**
-    - uses: actions/upload-pages-artifact@v2
-      with:
-        path: site              # folder to publish
-        name: github-pages      # DO NOT change this
-
+  # ───────────────────────────────────────────────────────────────── DEPLOY ──
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages       # Pages creates this on first success
+
+    environment:            # GitHub creates ‘github-pages’ on first success
+      name: github-pages
+      url:  ${{ steps.deployment.outputs.page_url }}
+
     permissions:
       pages: write
       id-token: write
-      actions: read
+      actions: read          # keep
+
     steps:
-    # 3️⃣ publishes the artifact produced in the same run
-    - id: deployment
-      uses: actions/deploy-pages@v2
-      with:
-        artifact_name: github-pages   # must match upload step
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2         # <- v2 is current
