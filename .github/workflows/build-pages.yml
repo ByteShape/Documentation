@@ -26,8 +26,8 @@ env:
   PY_VER: "3.11"
   # one line  =  <name>  <git-ref>  <clone-URL>
   LIBRARIES: |
-    shapelearn main https://github.com/ByteShape-AI/shapelearn.git
-    shapelearn dev https://github.com/ByteShape-AI/shapelearn.git
+    shapelearn main https://github.com/ByteShape/ShapeLearn.git
+    shapelearn dev https://github.com/ByteShape/ShapeLearn.git
 
 jobs:
   build:
