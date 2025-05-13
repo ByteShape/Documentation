@@ -1,0 +1,4 @@
+sphinx
+sphinx-autodoc-typehints
+sphinxcontrib-napoleon
+myst-parser
