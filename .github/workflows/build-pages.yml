@@ -52,8 +52,8 @@ jobs:
     # --- Sphinx + helpers -------------------------------------------
     - name: Install documentation dependencies
       run: |
-        pip install sphinx sphinx-autodoc-typehints myst-parser \
-                    sphinxcontrib-napoleon
+        pip install sphinx sphinx-autodoc-typehints myst-parser
+
 
     # --- loop through every LIBRARIES entry -------------------------
     - name: Build docs for each library / branch
@@ -78,7 +78,7 @@ jobs:
         extensions = [
             'sphinx.ext.autodoc',
             'sphinx.ext.autosummary',
-            'sphinxcontrib.napoleon',
+            'sphinx.ext.napoleon',
             'sphinx_autodoc_typehints',
         ]
         autosummary_generate = True
